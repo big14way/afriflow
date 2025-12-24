@@ -13,19 +13,19 @@ import { ContractService } from "../services/ContractService";
 export const PaymentIntentSchema = z.object({
   type: z.enum(["instant", "escrow", "batch", "recurring"]),
   action: z.enum(["send", "create_escrow", "release_milestone", "check_status"]),
-  amount: z.number().positive().optional(),
-  currency: z.string().optional(),
+  amount: z.number().positive().optional().nullable(),
+  currency: z.string().optional().nullable(),
   recipient: z.object({
-    address: z.string().optional(),
-    name: z.string().optional(),
-    country: z.string().optional(),
-  }).optional(),
+    address: z.string().optional().nullable(),
+    name: z.string().optional().nullable(),
+    country: z.string().optional().nullable(),
+  }).optional().nullable(),
   milestones: z.array(z.object({
     description: z.string(),
     amount: z.number().positive(),
-    releaseCondition: z.string().optional(),
-  })).optional(),
-  metadata: z.record(z.any()).optional(),
+    releaseCondition: z.string().optional().nullable(),
+  })).optional().nullable(),
+  metadata: z.record(z.any()).optional().nullable(),
   confidence: z.number().min(0).max(1),
 });
 
@@ -216,7 +216,7 @@ Extract and return JSON with these fields:
 }`;
 
     const response = await this.openai.chat.completions.create({
-      model: "gpt-4-turbo-preview",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
         ...context.conversationHistory.slice(-5).map((m) => ({
