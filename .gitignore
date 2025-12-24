@@ -1,0 +1,62 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environment files (NEVER commit secrets!)
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+*.env
+
+# Build outputs
+dist/
+build/
+out/
+
+# Hardhat / Smart Contracts
+cache/
+artifacts/
+typechain-types/
+deployments/
+coverage/
+coverage.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+.nyc_output/
+
+# Misc
+*.tgz
+.eslintcache
+.cache/
+
+# Frontend specific
+frontend/dist/
+frontend/.vite/
+
+# Backend specific
+backend/dist/
+backend/logs/
+
+# Local development
+*.local

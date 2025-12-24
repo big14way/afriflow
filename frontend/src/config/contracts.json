@@ -1,0 +1,18 @@
+{
+  "network": "cronosTestnet",
+  "chainId": 338,
+  "deployer": "0x208B2660e5F62CDca21869b389c5aF9E7f0faE89",
+  "timestamp": "2025-12-24T06:52:09.561Z",
+  "contracts": {
+    "AfriFlowPayment": "0xC3a201c2Dc904ae32a9a0adea3478EB252d5Cf88",
+    "EscrowVault": "0xde5eCbdf2e9601C4B4a08899EAa836081011F7ac"
+  },
+  "supportedTokens": [
+    "0xc21223249CA28397B4B6541dfFaEcC539BfF0c59"
+  ],
+  "configuration": {
+    "feeBps": 10,
+    "treasury": "0x208B2660e5F62CDca21869b389c5aF9E7f0faE89",
+    "x402Facilitator": "0x0000000000000000000000000000000000000000"
+  }
+}
