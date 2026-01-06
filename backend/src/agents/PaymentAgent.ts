@@ -13,7 +13,8 @@ import { ContractService } from "../services/ContractService";
 export const PaymentIntentSchema = z.object({
   type: z.enum(["instant", "escrow", "batch", "recurring"]),
   action: z.enum(["send", "create_escrow", "release_milestone", "check_status"]),
-  amount: z.number().positive().optional().nullable(),
+  // Allow any number or null during intent parsing - validate positive amounts later when executing
+  amount: z.number().optional().nullable(),
   currency: z.string().optional().nullable(),
   recipient: z.object({
     address: z.string().optional().nullable(),
@@ -184,8 +185,20 @@ export class PaymentAgent {
     message: string,
     context: AgentContext
   ): Promise<PaymentIntent> {
+    // Build conversation context summary for the AI
+    const recentHistory = context.conversationHistory.slice(-6);
+    const historyContext = recentHistory.length > 0
+      ? `\nRecent conversation:\n${recentHistory.map(m => `${m.role}: ${m.content}`).join('\n')}\n`
+      : '';
+
     const systemPrompt = `You are AfriFlow's payment intent parser. Extract payment information from natural language.
-    
+
+IMPORTANT: This may be a FOLLOW-UP message in an ongoing conversation. If the conversation history shows a previous payment request (with amount, destination, etc.) and the current message provides missing information (like a wallet address or amount), you MUST combine the information from BOTH messages to form a complete intent.
+
+For example:
+- If conversation shows "Send $100 to Kenya" followed by user message "0x123...", the intent should include BOTH the $100 amount AND the 0x123 recipient address.
+- If the user was asked "How much would you like to send?" and replies "$50", combine with any previous context about recipient.
+${historyContext}
 User's country: ${context.userCountry || "Unknown"}
 User's wallet: ${context.walletAddress}
 
@@ -198,17 +211,18 @@ Common patterns:
 - "Create escrow for [project]" → escrow creation
 - "Release payment when [condition]" → milestone escrow
 - "Send X to multiple people" → batch payment
+- A wallet address (0x...) as a response to "who?" → recipient for previous payment
 
 Extract and return JSON with these fields:
 {
   "type": "instant" | "escrow" | "batch" | "recurring",
   "action": "send" | "create_escrow" | "release_milestone" | "check_status",
-  "amount": number (in USD if currency unclear),
+  "amount": number (in USD if currency unclear) - IMPORTANT: Look in conversation history if not in current message,
   "currency": "USD" | "NGN" | "KES" | "ZAR" | etc,
   "recipient": {
     "name": string or null,
-    "address": wallet address if provided or null,
-    "country": country code or null
+    "address": wallet address if provided (check current message AND conversation history) or null,
+    "country": country code or null (check conversation history for mentions like "Kenya", "Nigeria", etc.)
   },
   "milestones": [{ "description": string, "amount": number }] for escrow,
   "metadata": any relevant context,
@@ -315,22 +329,44 @@ Extract and return JSON with these fields:
     // Determine action type based on intent
     switch (intent.type) {
       case "instant":
+        // Safety check - ensure we have a valid recipient address
+        const instantRecipient = intent.recipient?.address;
+        if (!instantRecipient || !instantRecipient.startsWith("0x")) {
+          return {
+            type: "clarify",
+            params: {
+              reason: "Invalid recipient address",
+              missingFields: ["recipient"],
+            },
+          };
+        }
         return {
           type: "execute_payment",
           params: {
-            recipient: intent.recipient!.address,
+            recipient: instantRecipient,
             amount: intent.amount,
             fromCorridor: "US", // Default, should come from context
-            toCorridor: intent.recipient!.country,
+            toCorridor: intent.recipient?.country || "KE",
             metadata: JSON.stringify(intent.metadata || {}),
           },
         };
 
       case "escrow":
+        // Safety check for escrow recipient
+        const escrowRecipient = intent.recipient?.address;
+        if (!escrowRecipient || !escrowRecipient.startsWith("0x")) {
+          return {
+            type: "clarify",
+            params: {
+              reason: "Invalid recipient address",
+              missingFields: ["recipient"],
+            },
+          };
+        }
         return {
           type: "create_escrow",
           params: {
-            recipient: intent.recipient!.address,
+            recipient: escrowRecipient,
             totalAmount: intent.amount,
             milestones: intent.milestones,
             metadata: JSON.stringify(intent.metadata || {}),
@@ -362,8 +398,11 @@ Extract and return JSON with these fields:
     const missing: string[] = [];
 
     if (intent.action === "send" || intent.action === "create_escrow") {
-      if (!intent.amount) missing.push("amount");
-      if (!intent.recipient?.address && !intent.recipient?.name) {
+      // Check for valid positive amount (0, null, undefined are all invalid)
+      if (!intent.amount || intent.amount <= 0) missing.push("amount");
+      // For payments, we MUST have a valid wallet address (not just a name)
+      const recipientAddress = intent.recipient?.address;
+      if (!recipientAddress || typeof recipientAddress !== 'string' || !recipientAddress.startsWith("0x")) {
         missing.push("recipient");
       }
     }
