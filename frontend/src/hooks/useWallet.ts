@@ -104,10 +104,33 @@ export const useWalletStore = create<WalletState>()(
             }
           });
 
-          window.ethereum.on('chainChanged', (chainIdHex: string) => {
+          window.ethereum.on('chainChanged', async (chainIdHex: string) => {
             const newChainId = parseInt(chainIdHex, 16);
-            set({ chainId: newChainId });
-            get().refreshBalance();
+            // Recreate provider and signer when chain changes
+            try {
+              const newProvider = new ethers.BrowserProvider(window.ethereum);
+              const newSigner = await newProvider.getSigner();
+              const currentAddress = get().address;
+
+              if (currentAddress) {
+                const balance = await newProvider.getBalance(currentAddress);
+                set({
+                  chainId: newChainId,
+                  provider: newProvider,
+                  signer: newSigner,
+                  balance: ethers.formatEther(balance)
+                });
+              } else {
+                set({
+                  chainId: newChainId,
+                  provider: newProvider,
+                  signer: newSigner
+                });
+              }
+            } catch (error) {
+              console.error('Failed to update provider on chain change:', error);
+              set({ chainId: newChainId });
+            }
           });
 
           // Check if on Cronos network, if not, prompt to switch
@@ -162,14 +185,37 @@ export const useWalletStore = create<WalletState>()(
       },
 
       refreshBalance: async () => {
-        const { address, provider } = get();
-        if (!address || !provider) return;
+        const { address } = get();
+        if (!address || !window.ethereum) return;
 
         try {
-          const balance = await provider.getBalance(address);
-          set({ balance: ethers.formatEther(balance) });
-        } catch (error) {
-          console.error('Failed to refresh balance:', error);
+          // Always create a fresh provider to avoid stale network issues
+          const freshProvider = new ethers.BrowserProvider(window.ethereum);
+          const balance = await freshProvider.getBalance(address);
+          const network = await freshProvider.getNetwork();
+
+          set({
+            balance: ethers.formatEther(balance),
+            chainId: Number(network.chainId),
+            provider: freshProvider
+          });
+        } catch (error: any) {
+          // If network error, try to recover
+          if (error.code === 'NETWORK_ERROR') {
+            console.warn('Network changed, attempting to recover...');
+            try {
+              const newProvider = new ethers.BrowserProvider(window.ethereum);
+              const balance = await newProvider.getBalance(address);
+              set({
+                balance: ethers.formatEther(balance),
+                provider: newProvider
+              });
+            } catch (retryError) {
+              console.error('Failed to recover from network change:', retryError);
+            }
+          } else {
+            console.error('Failed to refresh balance:', error);
+          }
         }
       },
     }),
