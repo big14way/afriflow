@@ -26,7 +26,8 @@ export const PaymentIntentSchema = z.object({
     amount: z.number().positive(),
     releaseCondition: z.string().optional().nullable(),
   })).optional().nullable(),
-  metadata: z.record(z.any()).optional().nullable(),
+  // Accept metadata as object, string, or null (AI sometimes returns string)
+  metadata: z.union([z.record(z.any()), z.string()]).optional().nullable(),
   confidence: z.number().min(0).max(1),
 });
 
@@ -523,6 +524,8 @@ Reply **CONFIRM** to create this escrow, or tell me what you'd like to change.`;
 ✅ Recipient receives: $${net}
 
 ⚡ Settlement: Instant (< 1 second via Cronos x402)
+
+⚠️ **Before confirming:** Ensure you have approved USDC spending for the AfriFlow contract. You need at least $${intent.amount} USDC in your wallet.
 
 Reply **CONFIRM** to send, or tell me what you'd like to change.`;
     }

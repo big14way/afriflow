@@ -61,6 +61,28 @@ export class X402Service {
       // Convert amount to token decimals (USDC has 6 decimals)
       const amount = ethers.parseUnits(params.amount.toString(), 6);
 
+      // Check sender's USDC balance
+      const balance = await this.getTokenBalance(params.sender, "USDC");
+      const balanceNumber = parseFloat(balance);
+      if (balanceNumber < params.amount) {
+        throw new Error(
+          `Insufficient USDC balance. You have ${balance} USDC but need ${params.amount} USDC. Please fund your wallet with USDC on Cronos testnet.`
+        );
+      }
+
+      // Check allowance
+      const allowance = await this.checkAllowance(
+        params.sender,
+        this.paymentContractAddress,
+        "USDC"
+      );
+      const allowanceNumber = parseFloat(allowance);
+      if (allowanceNumber < params.amount) {
+        throw new Error(
+          `Insufficient USDC allowance. Please approve the AfriFlow contract (${this.paymentContractAddress}) to spend your USDC. Current allowance: ${allowance} USDC, required: ${params.amount} USDC.`
+        );
+      }
+
       // Get payment contract
       const paymentContract = new ethers.Contract(
         this.paymentContractAddress,
