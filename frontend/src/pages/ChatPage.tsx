@@ -38,6 +38,7 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [pendingAction, setPendingAction] = useState<any>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { address, isConnected, connect } = useWalletStore();
@@ -107,12 +108,18 @@ Just tell me what you need in plain English!`,
           message: userMessage.content,
           walletAddress: address,
           userCountry: 'US', // Default, could be detected
+          conversationId: conversationId || undefined, // Send conversation ID if we have one
         }),
       });
 
       const data = await response.json();
 
       if (data.success) {
+        // Store conversation ID for subsequent messages
+        if (data.data.conversationId && !conversationId) {
+          setConversationId(data.data.conversationId);
+        }
+
         const assistantMessage: Message = {
           id: `assistant-${Date.now()}`,
           role: 'assistant',

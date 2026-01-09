@@ -245,6 +245,12 @@ Extract and return JSON with these fields:
     });
 
     const parsed = JSON.parse(response.choices[0].message.content || "{}");
+    logger.info("AI parsed intent", {
+      currentMessage: message,
+      parsedRecipient: parsed.recipient?.address,
+      parsedAmount: parsed.amount,
+      conversationHistoryLength: context.conversationHistory.length
+    });
     return PaymentIntentSchema.parse(parsed);
   }
 
