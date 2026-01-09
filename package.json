@@ -25,6 +25,7 @@
     "deploy:mainnet": "npx hardhat run scripts/deploy.ts --network cronosMainnet",
     "deploy:mock-usdc": "npx hardhat run scripts/deployMockUSDC.ts --network cronosTestnet",
     "claim-usdc": "npx hardhat run scripts/claimTestUSDC.ts --network cronosTestnet",
+    "approve-usdc": "npx hardhat run scripts/approveUSDC.ts --network cronosTestnet",
     "verify": "npx hardhat verify --network"
   },
   "keywords": [
