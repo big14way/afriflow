@@ -188,29 +188,36 @@ Just tell me what you need in plain English!`,
       if (pendingAction.type === 'create_escrow') {
         // Handle escrow creation
         const escrowABI = [
-          'function createEscrow(address recipient, address token, uint256 totalAmount, tuple(string description, uint256 amount, string releaseCondition)[] milestones, string metadata) external returns (bytes32)',
+          'function createEscrow(address recipient, address token, uint256 totalAmount, string[] milestoneDescriptions, uint256[] milestoneAmounts, uint256[] milestoneReleaseTimes, string metadata) external returns (uint256)',
         ];
 
         const escrowContract = new ethers.Contract(ESCROW_CONTRACT, escrowABI, signer);
 
         const totalAmount = ethers.parseUnits(pendingAction.params.totalAmount.toString(), 6);
-        const milestones = pendingAction.params.milestones.map((m: any) => ({
-          description: m.description,
-          amount: ethers.parseUnits(m.amount.toString(), 6),
-          releaseCondition: m.releaseCondition || '',
-        }));
+
+        // Prepare milestone arrays
+        const milestoneDescriptions = pendingAction.params.milestones.map((m: any) => m.description);
+        const milestoneAmounts = pendingAction.params.milestones.map((m: any) =>
+          ethers.parseUnits(m.amount.toString(), 6)
+        );
+        const milestoneReleaseTimes = pendingAction.params.milestones.map(() =>
+          Math.floor(Date.now() / 1000) // Current timestamp for now
+        );
 
         console.log('Creating escrow...', {
           recipient: pendingAction.params.recipient,
           totalAmount: pendingAction.params.totalAmount,
-          milestones: pendingAction.params.milestones,
+          milestoneDescriptions,
+          milestoneAmounts: pendingAction.params.milestones.map((m: any) => m.amount),
         });
 
         tx = await escrowContract.createEscrow(
           pendingAction.params.recipient,
           USDC_ADDRESS,
           totalAmount,
-          milestones,
+          milestoneDescriptions,
+          milestoneAmounts,
+          milestoneReleaseTimes,
           pendingAction.params.metadata || '{}'
         );
 
