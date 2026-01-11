@@ -167,41 +167,97 @@ Just tell me what you need in plain English!`,
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/chat/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          walletAddress: address,
-          action: pendingAction,
-        }),
+      // Execute payment directly from user's wallet using MetaMask
+      const { ethers } = await import('ethers');
+
+      if (!window.ethereum) {
+        throw new Error('MetaMask not found');
+      }
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      // Contract addresses from env
+      const PAYMENT_CONTRACT = '0xC3a201c2Dc904ae32a9a0adea3478EB252d5Cf88';
+      const USDC_ADDRESS = '0xd8E68c3B9D3637CB99054efEdeE20BD8aeea45f1';
+
+      // AfriFlowPayment contract ABI (minimal)
+      const paymentABI = [
+        'function executeInstantPayment(address recipient, address token, uint256 amount, bytes32 fromCorridor, bytes32 toCorridor, string calldata metadata) external returns (bytes32)',
+      ];
+
+      const paymentContract = new ethers.Contract(PAYMENT_CONTRACT, paymentABI, signer);
+
+      // Encode corridor bytes32
+      const fromCorridor = ethers.encodeBytes32String(pendingAction.params.fromCorridor || 'US');
+      const toCorridor = ethers.encodeBytes32String(pendingAction.params.toCorridor || 'KE');
+      const amount = ethers.parseUnits(pendingAction.params.amount.toString(), 6); // USDC has 6 decimals
+
+      console.log('Executing payment...', {
+        recipient: pendingAction.params.recipient,
+        amount: pendingAction.params.amount,
+        fromCorridor: pendingAction.params.fromCorridor,
+        toCorridor: pendingAction.params.toCorridor,
       });
 
-      const data = await response.json();
+      // Execute payment
+      const tx = await paymentContract.executeInstantPayment(
+        pendingAction.params.recipient,
+        USDC_ADDRESS,
+        amount,
+        fromCorridor,
+        toCorridor,
+        pendingAction.params.metadata || '{}'
+      );
 
-      if (data.success) {
-        const resultMessage: Message = {
-          id: `result-${Date.now()}`,
-          role: 'assistant',
-          content: data.data.message,
-          timestamp: new Date(),
-          transactionHash: data.data.transactionHash,
-        };
+      toast({
+        title: 'Transaction Sent',
+        description: 'Waiting for confirmation...',
+      });
 
-        setMessages((prev) => [...prev, resultMessage]);
-        setPendingAction(null);
+      const receipt = await tx.wait();
 
-        toast({
-          title: 'Payment Successful!',
-          description: 'Your transaction has been confirmed',
-          variant: 'success',
-        });
-      } else {
-        throw new Error(data.error || 'Transaction failed');
-      }
+      const resultMessage: Message = {
+        id: `result-${Date.now()}`,
+        role: 'assistant',
+        content: `✅ **Payment Successful!**
+
+🔗 Transaction: ${receipt.hash}
+⚡ Status: Confirmed
+💰 Amount: $${pendingAction.params.amount} sent to ${pendingAction.params.recipient}
+
+View on Cronos Explorer: https://explorer.cronos.org/testnet/tx/${receipt.hash}`,
+        timestamp: new Date(),
+        transactionHash: receipt.hash,
+      };
+
+      setMessages((prev) => [...prev, resultMessage]);
+      setPendingAction(null);
+
+      toast({
+        title: 'Payment Successful!',
+        description: 'Your transaction has been confirmed',
+        variant: 'success',
+      });
     } catch (error: any) {
+      console.error('Payment error:', error);
+
+      const resultMessage: Message = {
+        id: `error-${Date.now()}`,
+        role: 'assistant',
+        content: `❌ **Payment Failed**
+
+Error: ${error.message || 'Unknown error'}
+
+Please check your wallet balance and try again. If the issue persists, contact support.`,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, resultMessage]);
+
       toast({
         title: 'Transaction Failed',
-        description: error.message,
+        description: error.message || 'Unknown error',
         variant: 'destructive',
       });
     } finally {
@@ -262,7 +318,7 @@ Just tell me what you need in plain English!`,
                   }
                 >
                   {/* Render markdown-like content */}
-                  <div className="prose prose-sm dark:prose-invert max-w-none">
+                  <div className="prose prose-sm dark:prose-invert max-w-none break-words">
                     {message.content.split('\n').map((line, i) => {
                       // Bold text
                       let processedLine = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
@@ -276,7 +332,7 @@ Just tell me what you need in plain English!`,
                         );
                       }
                       return (
-                        <p key={i} className="my-1" dangerouslySetInnerHTML={{ __html: processedLine }} />
+                        <p key={i} className="my-1 break-all" dangerouslySetInnerHTML={{ __html: processedLine }} />
                       );
                     })}
                   </div>
@@ -297,7 +353,7 @@ Just tell me what you need in plain English!`,
                           <Copy className="w-3 h-3" />
                         </button>
                         <a
-                          href={`https://explorer.cronos.org/tx/${message.transactionHash}`}
+                          href={`https://explorer.cronos.org/testnet/tx/${message.transactionHash}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"
