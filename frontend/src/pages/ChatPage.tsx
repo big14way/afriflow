@@ -179,10 +179,11 @@ Just tell me what you need in plain English!`,
 
       // Contract addresses from env
       const PAYMENT_CONTRACT = '0xC3a201c2Dc904ae32a9a0adea3478EB252d5Cf88';
-      const ESCROW_CONTRACT = '0x97ae7ed8bEEfC7358C1Dd5108dD7f3e378bFB4E3';
+      const ESCROW_CONTRACT = '0xde5eCbdf2e9601C4B4a08899EAa836081011F7ac';
       const USDC_ADDRESS = '0xd8E68c3B9D3637CB99054efEdeE20BD8aeea45f1';
 
-      let tx, receipt, resultMessage;
+      let tx, receipt;
+      let resultMessage: Message;
 
       if (pendingAction.type === 'create_escrow') {
         // Handle escrow creation
