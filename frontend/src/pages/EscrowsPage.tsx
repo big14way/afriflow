@@ -142,34 +142,52 @@ export default function EscrowsPage() {
     setActionLoading(`${escrowId}-${milestoneIndex}-${action}`);
 
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-      const response = await fetch(`${baseUrl}/api/escrows/action`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          escrowId,
-          action,
-          milestoneIndex,
-          walletAddress: address,
-        }),
+      // Execute directly from wallet for better UX and security
+      const { ethers } = await import('ethers');
+
+      if (!window.ethereum) {
+        throw new Error('MetaMask not found');
+      }
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      const ESCROW_CONTRACT = '0xde5eCbdf2e9601C4B4a08899EAa836081011F7ac';
+
+      let tx;
+      if (action === 'release') {
+        const escrowABI = [
+          'function releaseMilestone(uint256 escrowId, uint256 milestoneIndex) external',
+        ];
+        const escrowContract = new ethers.Contract(ESCROW_CONTRACT, escrowABI, signer);
+        tx = await escrowContract.releaseMilestone(escrowId, milestoneIndex);
+      } else {
+        const escrowABI = [
+          'function disputeMilestone(uint256 escrowId, uint256 milestoneIndex) external',
+        ];
+        const escrowContract = new ethers.Contract(ESCROW_CONTRACT, escrowABI, signer);
+        tx = await escrowContract.disputeMilestone(escrowId, milestoneIndex);
+      }
+
+      toast({
+        title: 'Transaction Sent',
+        description: 'Waiting for confirmation...',
       });
 
-      const data = await response.json();
+      const receipt = await tx.wait();
 
-      if (data.success) {
-        toast({
-          title: action === 'release' ? 'Milestone Released!' : 'Dispute Filed',
-          description: `Transaction: ${data.transactionHash?.slice(0, 10)}...`,
-          variant: 'success',
-        });
-        fetchEscrows();
-      } else {
-        throw new Error(data.error || 'Action failed');
-      }
+      toast({
+        title: action === 'release' ? 'Milestone Released!' : 'Dispute Filed',
+        description: `Transaction: ${receipt.hash.slice(0, 10)}...`,
+        variant: 'success',
+      });
+
+      fetchEscrows();
     } catch (error: any) {
+      console.error('Milestone action error:', error);
       toast({
         title: 'Action Failed',
-        description: error.message,
+        description: error.message || 'Transaction failed. Please try again.',
         variant: 'destructive',
       });
     } finally {
@@ -181,33 +199,43 @@ export default function EscrowsPage() {
     setActionLoading(`cancel-${escrowId}`);
 
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-      const response = await fetch(`${baseUrl}/api/escrows/action`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          escrowId,
-          action: 'cancel',
-          walletAddress: address,
-        }),
+      // Execute directly from wallet
+      const { ethers } = await import('ethers');
+
+      if (!window.ethereum) {
+        throw new Error('MetaMask not found');
+      }
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      const ESCROW_CONTRACT = '0xde5eCbdf2e9601C4B4a08899EAa836081011F7ac';
+      const escrowABI = [
+        'function cancelEscrow(uint256 escrowId) external',
+      ];
+
+      const escrowContract = new ethers.Contract(ESCROW_CONTRACT, escrowABI, signer);
+      const tx = await escrowContract.cancelEscrow(escrowId);
+
+      toast({
+        title: 'Transaction Sent',
+        description: 'Cancelling escrow...',
       });
 
-      const data = await response.json();
+      await tx.wait();
 
-      if (data.success) {
-        toast({
-          title: 'Escrow Cancelled',
-          description: 'Funds have been refunded',
-          variant: 'success',
-        });
-        fetchEscrows();
-      } else {
-        throw new Error(data.error || 'Cancellation failed');
-      }
+      toast({
+        title: 'Escrow Cancelled',
+        description: 'Funds have been refunded',
+        variant: 'success',
+      });
+
+      fetchEscrows();
     } catch (error: any) {
+      console.error('Cancel escrow error:', error);
       toast({
         title: 'Cancellation Failed',
-        description: error.message,
+        description: error.message || 'Transaction failed. Please try again.',
         variant: 'destructive',
       });
     } finally {
