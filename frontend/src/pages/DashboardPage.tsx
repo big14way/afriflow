@@ -45,23 +45,48 @@ interface Stats {
   averageAmount: number;
 }
 
-// Mock data for demo
-const mockChartData = [
-  { month: 'Jan', volume: 2400 },
-  { month: 'Feb', volume: 1398 },
-  { month: 'Mar', volume: 9800 },
-  { month: 'Apr', volume: 3908 },
-  { month: 'May', volume: 4800 },
-  { month: 'Jun', volume: 3800 },
-  { month: 'Jul', volume: 4300 },
-];
+interface ChartData {
+  month: string;
+  volume: number;
+}
 
-const corridorData = [
-  { name: 'Nigeria', value: 45, color: '#22C55E' },
-  { name: 'Kenya', value: 25, color: '#3B82F6' },
-  { name: 'Ghana', value: 15, color: '#F59E0B' },
-  { name: 'Other', value: 15, color: '#6B7280' },
-];
+interface CorridorData {
+  name: string;
+  value: number;
+  color: string;
+}
+
+// Corridor code to name mapping
+const corridorNames: Record<string, string> = {
+  'NG': 'Nigeria',
+  'KE': 'Kenya',
+  'GH': 'Ghana',
+  'ZA': 'South Africa',
+  'TZ': 'Tanzania',
+  'UG': 'Uganda',
+  'ZW': 'Zimbabwe',
+  'EG': 'Egypt',
+  'MA': 'Morocco',
+  'SN': 'Senegal',
+  'US': 'USA',
+  'GB': 'UK',
+  'EU': 'EU',
+  'AE': 'UAE',
+  'CN': 'China',
+};
+
+// Corridor colors
+const corridorColors: Record<string, string> = {
+  'Nigeria': '#22C55E',
+  'Kenya': '#3B82F6',
+  'Ghana': '#F59E0B',
+  'South Africa': '#8B5CF6',
+  'Tanzania': '#EC4899',
+  'Uganda': '#F97316',
+  'Zimbabwe': '#DC2626',
+  'Egypt': '#FACC15',
+  'Other': '#6B7280',
+};
 
 const statusColors: Record<string, { bg: string; text: string; icon: typeof CheckCircle2 }> = {
   COMPLETED: { bg: 'bg-prosperity-500/10', text: 'text-prosperity-600 dark:text-prosperity-400', icon: CheckCircle2 },
@@ -78,6 +103,8 @@ export default function DashboardPage() {
     paymentCount: 0,
     averageAmount: 0,
   });
+  const [chartData, setChartData] = useState<ChartData[]>([]);
+  const [corridorData, setCorridorData] = useState<CorridorData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -100,20 +127,62 @@ export default function DashboardPage() {
       console.log('Dashboard payments response:', paymentsData);
 
       if (paymentsData.success && paymentsData.data) {
-        setPayments(paymentsData.data);
+        const paymentsList = paymentsData.data;
+        setPayments(paymentsList);
 
         // Calculate stats
-        const total = paymentsData.data.reduce((acc: number, p: Payment) => acc + parseFloat(p.amount), 0);
-        const fees = paymentsData.data.reduce((acc: number, p: Payment) => acc + parseFloat(p.fee || '0'), 0);
+        const total = paymentsList.reduce((acc: number, p: Payment) => acc + parseFloat(p.amount), 0);
+        const fees = paymentsList.reduce((acc: number, p: Payment) => acc + parseFloat(p.fee || '0'), 0);
         const traditionalFees = total * 0.08; // 8% traditional fee
         const saved = traditionalFees - fees;
 
         setStats({
           totalSent: total,
           totalSaved: saved,
-          paymentCount: paymentsData.data.length,
-          averageAmount: paymentsData.data.length > 0 ? total / paymentsData.data.length : 0,
+          paymentCount: paymentsList.length,
+          averageAmount: paymentsList.length > 0 ? total / paymentsList.length : 0,
         });
+
+        // Generate chart data - monthly volume
+        const monthlyVolume: Record<string, number> = {};
+        paymentsList.forEach((p: Payment) => {
+          const date = new Date(p.createdAt);
+          const monthKey = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+          monthlyVolume[monthKey] = (monthlyVolume[monthKey] || 0) + parseFloat(p.amount);
+        });
+
+        const chartDataArr = Object.entries(monthlyVolume)
+          .map(([month, volume]) => ({ month, volume }))
+          .sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime())
+          .slice(-6); // Last 6 months
+
+        setChartData(chartDataArr.length > 0 ? chartDataArr : [
+          { month: new Date().toLocaleDateString('en-US', { month: 'short' }), volume: 0 }
+        ]);
+
+        // Generate corridor data
+        const corridorCounts: Record<string, number> = {};
+        paymentsList.forEach((p: Payment) => {
+          const corridorCode = p.toCorridor || 'Other';
+          // Map corridor code (e.g., "KE") to full name (e.g., "Kenya")
+          const corridorName = corridorNames[corridorCode] || corridorCode;
+          corridorCounts[corridorName] = (corridorCounts[corridorName] || 0) + 1;
+        });
+
+        const totalPayments = paymentsList.length;
+        const corridorDataArr = Object.entries(corridorCounts).map(([name, count]) => ({
+          name,
+          value: Math.round((count / totalPayments) * 100),
+          color: corridorColors[name] || corridorColors['Other'],
+        }));
+
+        setCorridorData(corridorDataArr.length > 0 ? corridorDataArr : [
+          { name: 'No data', value: 100, color: corridorColors['Other'] }
+        ]);
+      } else {
+        // No payments yet - set empty states
+        setChartData([{ month: new Date().toLocaleDateString('en-US', { month: 'short' }), volume: 0 }]);
+        setCorridorData([{ name: 'No data', value: 100, color: corridorColors['Other'] }]);
       }
 
       // Fetch balance
@@ -122,13 +191,9 @@ export default function DashboardPage() {
       console.log('Dashboard balance response:', balanceData);
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
-      // Set mock data for demo
-      setStats({
-        totalSent: 15420,
-        totalSaved: 1234,
-        paymentCount: 47,
-        averageAmount: 328,
-      });
+      // Set empty data on error
+      setChartData([{ month: new Date().toLocaleDateString('en-US', { month: 'short' }), volume: 0 }]);
+      setCorridorData([{ name: 'No data', value: 100, color: corridorColors['Other'] }]);
     } finally {
       setIsLoading(false);
     }
@@ -280,7 +345,7 @@ export default function DashboardPage() {
           </h3>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={mockChartData}>
+              <AreaChart data={chartData}>
                 <defs>
                   <linearGradient id="volumeGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#22C55E" stopOpacity={0.3} />

@@ -288,12 +288,29 @@ export class ContractService {
     const payments = await Promise.all(
       paymentIds.map(async (id: string) => {
         const payment = await this.paymentContract.getPayment(id);
+
+        // Decode corridor bytes32 to string
+        let fromCorridor = 'Unknown';
+        let toCorridor = 'Unknown';
+        try {
+          fromCorridor = ethers.decodeBytes32String(payment.fromCorridor);
+        } catch (e) {
+          // Keep default if decode fails
+        }
+        try {
+          toCorridor = ethers.decodeBytes32String(payment.toCorridor);
+        } catch (e) {
+          // Keep default if decode fails
+        }
+
         return {
           paymentId: payment.paymentId,
           sender: payment.sender,
           recipient: payment.recipient,
           amount: ethers.formatUnits(payment.amount, 6),
           fee: ethers.formatUnits(payment.fee, 6),
+          fromCorridor,
+          toCorridor,
           status: ["PENDING", "COMPLETED", "FAILED", "REFUNDED", "CANCELLED"][
             payment.status
           ],
