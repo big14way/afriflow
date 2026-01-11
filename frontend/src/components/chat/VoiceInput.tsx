@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
-import { Mic, MicOff, Loader2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Mic, MicOff, AlertCircle } from 'lucide-react';
 
 interface VoiceInputProps {
   onTranscript: (text: string) => void;
@@ -10,60 +10,135 @@ interface VoiceInputProps {
 export function VoiceInput({ onTranscript, language = 'en-US' }: VoiceInputProps) {
   const [isListening, setIsListening] = useState(false);
   const [isSupported, setIsSupported] = useState(true);
+  const [error, setError] = useState<string>('');
+  const [showTooltip, setShowTooltip] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const timeoutRef = useRef<any>(null);
 
   useEffect(() => {
     // Check if browser supports Web Speech API
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
+      console.log('Speech recognition not supported in this browser');
       setIsSupported(false);
+      setError('Voice input not supported in this browser');
       return;
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = getLanguageCode(language);
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.lang = getLanguageCode(language);
 
-    recognition.onstart = () => {
-      setIsListening(true);
-    };
+      recognition.onstart = () => {
+        console.log('Speech recognition started');
+        setIsListening(true);
+        setError('');
 
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      onTranscript(transcript);
-      setIsListening(false);
-    };
+        // Auto-stop after 10 seconds to prevent hanging
+        timeoutRef.current = setTimeout(() => {
+          if (recognitionRef.current) {
+            recognitionRef.current.stop();
+          }
+        }, 10000);
+      };
 
-    recognition.onerror = (event: any) => {
-      console.error('Speech recognition error:', event.error);
-      setIsListening(false);
-    };
+      recognition.onresult = (event: any) => {
+        console.log('Speech recognition result received');
+        const transcript = event.results[0][0].transcript;
+        console.log('Transcript:', transcript);
+        onTranscript(transcript);
+        setIsListening(false);
+        clearTimeout(timeoutRef.current);
+      };
 
-    recognition.onend = () => {
-      setIsListening(false);
-    };
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error, event);
+        clearTimeout(timeoutRef.current);
 
-    recognitionRef.current = recognition;
+        let errorMsg = 'Voice input failed';
+        switch (event.error) {
+          case 'no-speech':
+            errorMsg = 'No speech detected. Please try again.';
+            break;
+          case 'audio-capture':
+            errorMsg = 'Microphone not found or not working';
+            break;
+          case 'not-allowed':
+            errorMsg = 'Microphone permission denied';
+            break;
+          case 'network':
+            errorMsg = 'Network error. Check your connection.';
+            break;
+          case 'aborted':
+            errorMsg = 'Recording stopped';
+            break;
+        }
+
+        setError(errorMsg);
+        setIsListening(false);
+
+        // Show error briefly
+        setTimeout(() => setError(''), 3000);
+      };
+
+      recognition.onend = () => {
+        console.log('Speech recognition ended');
+        setIsListening(false);
+        clearTimeout(timeoutRef.current);
+      };
+
+      recognitionRef.current = recognition;
+      console.log('Speech recognition initialized');
+    } catch (err) {
+      console.error('Failed to initialize speech recognition:', err);
+      setIsSupported(false);
+      setError('Failed to initialize voice input');
+    }
 
     return () => {
       if (recognitionRef.current) {
-        recognitionRef.current.abort();
+        try {
+          recognitionRef.current.abort();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      }
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
       }
     };
   }, [language, onTranscript]);
 
   const toggleListening = () => {
-    if (!recognitionRef.current) return;
+    console.log('Toggle listening clicked, current state:', isListening);
+
+    if (!recognitionRef.current) {
+      console.error('Recognition not initialized');
+      setError('Voice input not available');
+      return;
+    }
 
     if (isListening) {
-      recognitionRef.current.stop();
+      try {
+        recognitionRef.current.stop();
+        console.log('Stopping recognition');
+      } catch (error) {
+        console.error('Failed to stop speech recognition:', error);
+        setIsListening(false);
+      }
     } else {
       try {
+        setError('');
         recognitionRef.current.start();
-      } catch (error) {
+        console.log('Starting recognition');
+      } catch (error: any) {
         console.error('Failed to start speech recognition:', error);
+        setError('Failed to start voice input. Try again.');
+        setTimeout(() => setError(''), 3000);
       }
     }
   };
@@ -80,40 +155,117 @@ export function VoiceInput({ onTranscript, language = 'en-US' }: VoiceInputProps
   }
 
   if (!isSupported) {
-    return null; // Hide if not supported
+    return (
+      <div className="relative">
+        <button
+          disabled
+          onMouseEnter={() => setShowTooltip(true)}
+          onMouseLeave={() => setShowTooltip(false)}
+          className="p-2 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
+          title="Voice input not supported"
+        >
+          <MicOff className="w-5 h-5" />
+        </button>
+        {showTooltip && (
+          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-slate-900 text-white text-xs rounded-lg whitespace-nowrap">
+            Voice input not supported in this browser
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
-    <motion.button
-      whileTap={{ scale: 0.95 }}
-      onClick={toggleListening}
-      disabled={isListening}
-      className={`relative p-2 rounded-lg transition-all ${
-        isListening
-          ? 'bg-red-500 text-white'
-          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
-      }`}
-      title={isListening ? 'Listening... Click to stop' : 'Click to use voice input'}
-    >
-      {isListening ? (
-        <>
-          <Loader2 className="w-5 h-5 animate-spin" />
-          <motion.div
-            className="absolute inset-0 rounded-lg border-2 border-red-500"
-            animate={{
-              scale: [1, 1.2, 1],
-              opacity: [1, 0, 1],
-            }}
-            transition={{
-              duration: 1.5,
-              repeat: Infinity,
-            }}
-          />
-        </>
-      ) : (
-        <Mic className="w-5 h-5" />
+    <div className="relative">
+      <motion.button
+        whileTap={{ scale: 0.95 }}
+        onClick={toggleListening}
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+        className={`relative p-2 rounded-lg transition-all ${
+          isListening
+            ? 'bg-red-500 text-white'
+            : error
+            ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+        }`}
+        title={
+          error
+            ? error
+            : isListening
+            ? 'Listening... Click to stop'
+            : 'Click to use voice input'
+        }
+      >
+        {isListening ? (
+          <>
+            <motion.div
+              animate={{ scale: [1, 1.1, 1] }}
+              transition={{ duration: 1, repeat: Infinity }}
+            >
+              <Mic className="w-5 h-5" />
+            </motion.div>
+            <motion.div
+              className="absolute inset-0 rounded-lg border-2 border-red-500"
+              animate={{
+                scale: [1, 1.3, 1],
+                opacity: [1, 0, 1],
+              }}
+              transition={{
+                duration: 1.5,
+                repeat: Infinity,
+              }}
+            />
+          </>
+        ) : error ? (
+          <AlertCircle className="w-5 h-5" />
+        ) : (
+          <Mic className="w-5 h-5" />
+        )}
+      </motion.button>
+
+      {/* Tooltip */}
+      {showTooltip && !error && !isListening && (
+        <motion.div
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-slate-900 text-white text-xs rounded-lg whitespace-nowrap z-50"
+        >
+          Click to speak
+          <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-slate-900" />
+        </motion.div>
       )}
-    </motion.button>
+
+      {/* Error tooltip */}
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 5 }}
+            className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-red-600 text-white text-xs rounded-lg whitespace-nowrap max-w-xs z-50"
+          >
+            {error}
+            <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-red-600" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Listening indicator */}
+      <AnimatePresence>
+        {isListening && (
+          <motion.div
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 5 }}
+            className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-red-600 text-white text-xs rounded-lg whitespace-nowrap z-50"
+          >
+            🎤 Listening... Speak now
+            <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-red-600" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
