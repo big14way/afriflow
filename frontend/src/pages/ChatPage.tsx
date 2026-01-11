@@ -16,6 +16,8 @@ import { validateBalance, generateErrorMessage, PAYMENT_CONTRACT, ESCROW_CONTRAC
 import { PaymentCard } from '../components/chat/PaymentCard';
 import { QuickActions, SmartSuggestions } from '../components/chat/QuickActions';
 import { BalanceDisplay } from '../components/chat/BalanceDisplay';
+import { VoiceInput } from '../components/chat/VoiceInput';
+import { TypingIndicator } from '../components/chat/TypingIndicator';
 
 interface Message {
   id: string;
@@ -529,22 +531,8 @@ ${errorInfo.actionButton ? `💡 **Next Step:** ${errorInfo.actionButton.label}`
             ))}
           </AnimatePresence>
 
-          {/* Loading indicator */}
-          {isLoading && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex justify-start"
-            >
-              <div className="chat-bubble-assistant">
-                <div className="typing-indicator text-afri-500">
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                </div>
-              </div>
-            </motion.div>
-          )}
+          {/* Typing indicator */}
+          {isLoading && <TypingIndicator />}
 
           {/* Payment Confirmation Card */}
           {pendingAction && !isLoading && (
@@ -615,7 +603,7 @@ ${errorInfo.actionButton ? `💡 **Next Step:** ${errorInfo.actionButton.label}`
               Connect Wallet to Start
             </button>
           ) : (
-            <form onSubmit={handleSubmit} className="flex gap-3">
+            <form onSubmit={handleSubmit} className="flex gap-2">
               <div className="flex-1 relative">
                 <textarea
                   ref={inputRef}
@@ -633,6 +621,12 @@ ${errorInfo.actionButton ? `💡 **Next Step:** ${errorInfo.actionButton.label}`
                   disabled={isLoading}
                 />
               </div>
+              <VoiceInput
+                onTranscript={(transcript) => {
+                  setInput(transcript);
+                  inputRef.current?.focus();
+                }}
+              />
               <button
                 type="submit"
                 disabled={!input.trim() || isLoading}

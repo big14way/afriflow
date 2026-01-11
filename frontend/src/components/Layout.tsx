@@ -14,6 +14,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { useWalletStore } from '../hooks/useWallet';
+import { LanguageSelector } from './LanguageSelector';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -121,6 +122,9 @@ export default function Layout({ children }: LayoutProps) {
 
             {/* Right side actions */}
             <div className="flex items-center gap-3">
+              {/* Language selector */}
+              <LanguageSelector />
+
               {/* Theme toggle */}
               <button
                 onClick={() => setIsDark(!isDark)}
