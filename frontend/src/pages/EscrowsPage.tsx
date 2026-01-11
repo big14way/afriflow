@@ -82,12 +82,19 @@ export default function EscrowsPage() {
       const response = await fetch(`${baseUrl}/api/escrows/${address}`);
       const data = await response.json();
 
-      if (data.escrows) {
-        setEscrows(data.escrows);
+      console.log('Escrows response:', data);
+
+      if (data.success && data.data) {
+        setEscrows(data.data);
       }
     } catch (error) {
       console.error('Failed to fetch escrows:', error);
-      // Set mock data for demo
+      toast({
+        title: 'Failed to load escrows',
+        description: 'Could not fetch your escrow data',
+        variant: 'destructive',
+      });
+      // Clear escrows on error
       setEscrows([
         {
           escrowId: 1,
