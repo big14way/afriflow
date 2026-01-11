@@ -57,6 +57,12 @@ export function VoiceInput({ onTranscript, language = 'en-US' }: VoiceInputProps
 
       recognition.onerror = (event: any) => {
         console.error('Speech recognition error:', event.error, event);
+        console.log('🔍 Diagnostic Info:', {
+          browser: navigator.userAgent,
+          online: navigator.onLine,
+          language: recognition.lang,
+          speechRecognitionSupport: 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window,
+        });
         clearTimeout(timeoutRef.current);
 
         let errorMsg = 'Voice input failed';
@@ -71,8 +77,13 @@ export function VoiceInput({ onTranscript, language = 'en-US' }: VoiceInputProps
             errorMsg = 'Microphone permission denied. Check browser settings.';
             break;
           case 'network':
-            errorMsg = 'Internet connection required for voice input';
-            console.warn('Speech recognition requires internet connection. The Web Speech API uses cloud-based recognition.');
+            errorMsg = 'Cannot reach speech service. Try: 1) Different browser (Chrome/Edge) 2) Disable ad-blockers 3) Check firewall';
+            console.warn('🔴 NETWORK ERROR TROUBLESHOOTING:');
+            console.warn('1. Browser: Use Chrome or Edge (best support)');
+            console.warn('2. Extensions: Disable ad-blockers/privacy extensions');
+            console.warn('3. Firewall: Check if blocking Google Speech API (speech.googleapis.com)');
+            console.warn('4. Network: Corporate/school networks may block this');
+            console.warn('5. Permissions: Ensure microphone permission is granted');
             break;
           case 'aborted':
             errorMsg = 'Recording cancelled';
@@ -86,7 +97,7 @@ export function VoiceInput({ onTranscript, language = 'en-US' }: VoiceInputProps
         setIsListening(false);
 
         // Show error longer for network issues
-        const timeout = event.error === 'network' ? 5000 : 3000;
+        const timeout = event.error === 'network' ? 8000 : 3000;
         setTimeout(() => setError(''), timeout);
       };
 

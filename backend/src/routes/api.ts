@@ -34,6 +34,7 @@ const QuoteSchema = z.object({
 let paymentAgent: PaymentAgent | null = null;
 let marketDataService: MarketDataService | null = null;
 let contractService: ContractService | null = null;
+let x402Service: X402Service | null = null;
 
 export function initializeServices(config: {
   openaiApiKey: string;
@@ -46,7 +47,7 @@ export function initializeServices(config: {
 }) {
   marketDataService = new MarketDataService();
 
-  const x402Service = new X402Service({
+  x402Service = new X402Service({
     rpcUrl: config.rpcUrl,
     facilitatorAddress: config.facilitatorAddress,
     paymentContractAddress: config.paymentContractAddress,

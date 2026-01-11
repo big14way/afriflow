@@ -59,7 +59,7 @@ export class MarketDataService {
         throw new Error(`MCP API error: ${response.status}`);
       }
 
-      const data = await response.json();
+      const data = await response.json() as any;
 
       const priceData: PriceData = {
         symbol: data.symbol,
@@ -100,7 +100,7 @@ export class MarketDataService {
       );
 
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.json() as any;
         const rate = parseFloat(data.rate);
         this.setCache(cacheKey, rate);
         return rate;

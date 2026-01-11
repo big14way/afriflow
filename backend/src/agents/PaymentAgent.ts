@@ -283,8 +283,9 @@ Extract and return JSON with these fields:
     if (enriched.amount && enriched.currency && enriched.currency !== "USD") {
       try {
         const rate = await this.marketData.getExchangeRate("USD", enriched.currency);
+        const existingMetadata = typeof enriched.metadata === 'object' ? enriched.metadata : {};
         enriched.metadata = {
-          ...enriched.metadata,
+          ...existingMetadata,
           exchangeRate: rate,
           originalAmount: enriched.amount,
           convertedAmount: enriched.amount * rate,
@@ -384,11 +385,12 @@ Extract and return JSON with these fields:
         };
 
       case "batch":
+        const batchMetadata = typeof intent.metadata === 'object' ? intent.metadata : {};
         return {
           type: "execute_payment",
           params: {
             batch: true,
-            payments: intent.metadata?.recipients || [],
+            payments: (batchMetadata as any)?.recipients || [],
           },
         };
 
@@ -402,11 +404,12 @@ Extract and return JSON with these fields:
               toCurrency: intent.currency || "NGN",
             },
           };
-        } else if (intent.action === "get_info") {
+        } else if (intent.action === "get_info" || intent.action === "check_status") {
           return {
-            type: "get_quote",
+            type: "clarify",
             params: {
-              queryType: "info",
+              reason: "info_request",
+              missingFields: [],
             },
           };
         }
@@ -461,7 +464,7 @@ Extract and return JSON with these fields:
   ): Promise<AgentResponse> {
     // Handle clarification needed
     if (action.type === "clarify") {
-      return this.generateClarificationResponse(action.params.missingFields);
+      return this.generateClarificationResponse(action.params.missingFields, action.params.reason);
     }
 
     // Handle get quote
@@ -481,7 +484,26 @@ Extract and return JSON with these fields:
     };
   }
 
-  private generateClarificationResponse(missingFields: string[]): AgentResponse {
+  private generateClarificationResponse(missingFields: string[], reason?: string): AgentResponse {
+    // Handle info/transaction history requests
+    if (reason === "info_request") {
+      return {
+        message: `📊 **Transaction History**
+
+To view your complete transaction history with detailed analytics, visit the **Dashboard** page!
+
+There you'll find:
+• 📝 All your recent transactions
+• 📈 Payment analytics and insights
+• 💰 Total sent and fees paid
+• 💾 Export options (CSV/PDF)
+• 📊 Visual charts and trends
+
+Would you like to make a new payment instead? Just tell me the amount and recipient!`,
+        requiresConfirmation: false,
+      };
+    }
+
     const fieldPrompts: Record<string, string> = {
       amount: "How much would you like to send?",
       recipient: "Who would you like to send this to? Please provide their wallet address or name.",
