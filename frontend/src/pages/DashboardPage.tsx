@@ -100,28 +100,31 @@ export default function DashboardPage() {
       const paymentsRes = await fetch(`${baseUrl}/api/payments/${address}`);
       const paymentsData = await paymentsRes.json();
 
-      if (paymentsData.payments) {
-        setPayments(paymentsData.payments);
-        
+      console.log('Dashboard payments response:', paymentsData);
+
+      if (paymentsData.success && paymentsData.data) {
+        setPayments(paymentsData.data);
+
         // Calculate stats
-        const total = paymentsData.payments.reduce((acc: number, p: Payment) => acc + parseFloat(p.amount), 0);
-        const fees = paymentsData.payments.reduce((acc: number, p: Payment) => acc + parseFloat(p.fee || '0'), 0);
+        const total = paymentsData.data.reduce((acc: number, p: Payment) => acc + parseFloat(p.amount), 0);
+        const fees = paymentsData.data.reduce((acc: number, p: Payment) => acc + parseFloat(p.fee || '0'), 0);
         const traditionalFees = total * 0.08; // 8% traditional fee
         const saved = traditionalFees - fees;
 
         setStats({
           totalSent: total,
           totalSaved: saved,
-          paymentCount: paymentsData.payments.length,
-          averageAmount: paymentsData.payments.length > 0 ? total / paymentsData.payments.length : 0,
+          paymentCount: paymentsData.data.length,
+          averageAmount: paymentsData.data.length > 0 ? total / paymentsData.data.length : 0,
         });
       }
 
       // Fetch balance
       const balanceRes = await fetch(`${baseUrl}/api/wallet/${address}/balance`);
       const balanceData = await balanceRes.json();
-      if (balanceData.balance) {
-        setBalance(balanceData.balance);
+      console.log('Dashboard balance response:', balanceData);
+      if (balanceData.success && balanceData.data) {
+        setBalance(balanceData.data.USDC || '0');
       }
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);

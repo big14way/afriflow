@@ -11,8 +11,8 @@ import { ContractService } from "../services/ContractService";
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export const PaymentIntentSchema = z.object({
-  type: z.enum(["instant", "escrow", "batch", "recurring"]),
-  action: z.enum(["send", "create_escrow", "release_milestone", "check_status"]),
+  type: z.enum(["instant", "escrow", "batch", "recurring", "query"]),
+  action: z.enum(["send", "create_escrow", "release_milestone", "check_status", "get_rate", "get_info"]),
   // Allow any number or null during intent parsing - validate positive amounts later when executing
   amount: z.number().optional().nullable(),
   currency: z.string().optional().nullable(),
@@ -207,17 +207,20 @@ African countries supported: Nigeria (NG), Kenya (KE), South Africa (ZA), Ghana 
 International: USA (US), UK (GB), UAE (AE), China (CN), EU (EU)
 
 Common patterns:
-- "Send $X to [person/place]" → instant payment
-- "Pay my [relationship] in [country]" → instant payment
-- "Create escrow for [project]" → escrow creation
-- "Release payment when [condition]" → milestone escrow
-- "Send X to multiple people" → batch payment
+- "Send $X to [person/place]" → instant payment (type: "instant", action: "send")
+- "Pay my [relationship] in [country]" → instant payment (type: "instant", action: "send")
+- "Create escrow for [project]" → escrow creation (type: "escrow", action: "create_escrow")
+- "Release payment when [condition]" → milestone escrow (type: "escrow", action: "create_escrow")
+- "Send X to multiple people" → batch payment (type: "batch", action: "send")
 - A wallet address (0x...) as a response to "who?" → recipient for previous payment
+- "What are the exchange rates for [currency]?" → rate query (type: "query", action: "get_rate")
+- "Show me rates", "Get quotes", "Currency rates" → rate query (type: "query", action: "get_rate")
+- "Check status", "Payment history", "Show my transactions" → info query (type: "query", action: "get_info")
 
 Extract and return JSON with these fields:
 {
-  "type": "instant" | "escrow" | "batch" | "recurring",
-  "action": "send" | "create_escrow" | "release_milestone" | "check_status",
+  "type": "instant" | "escrow" | "batch" | "recurring" | "query",
+  "action": "send" | "create_escrow" | "release_milestone" | "check_status" | "get_rate" | "get_info",
   "amount": number (in USD if currency unclear) - IMPORTANT: Look in conversation history if not in current message,
   "currency": "USD" | "NGN" | "KES" | "ZAR" | etc,
   "recipient": {
@@ -389,13 +392,33 @@ Extract and return JSON with these fields:
           },
         };
 
+      case "query":
+        if (intent.action === "get_rate") {
+          return {
+            type: "get_quote",
+            params: {
+              amount: intent.amount || 100, // Default to 100 for rate display
+              fromCurrency: "USD",
+              toCurrency: intent.currency || "NGN",
+            },
+          };
+        } else if (intent.action === "get_info") {
+          return {
+            type: "get_quote",
+            params: {
+              queryType: "info",
+            },
+          };
+        }
+        // Fallthrough to default
+
       default:
         return {
           type: "get_quote",
           params: {
-            amount: intent.amount,
+            amount: intent.amount || 100,
             fromCurrency: "USD",
-            toCurrency: intent.currency,
+            toCurrency: intent.currency || "NGN",
           },
         };
     }
@@ -403,6 +426,11 @@ Extract and return JSON with these fields:
 
   private identifyMissingFields(intent: PaymentIntent): string[] {
     const missing: string[] = [];
+
+    // Queries don't need amount or recipient
+    if (intent.type === "query") {
+      return missing;
+    }
 
     if (intent.action === "send" || intent.action === "create_escrow") {
       // Check for valid positive amount (0, null, undefined are all invalid)
@@ -473,18 +501,40 @@ Extract and return JSON with these fields:
     params: Record<string, any>
   ): Promise<AgentResponse> {
     try {
+      // Check if this is just a query (not a payment intent)
+      const isQueryOnly = intent.type === "query";
+
       const rate = await this.marketData.getExchangeRate(
         params.fromCurrency,
         params.toCurrency
       );
-      const converted = (intent.amount || 0) * rate;
+      const amount = params.amount || 100;
+      const converted = amount * rate;
 
-      return {
-        message: `Current exchange rate: 1 ${params.fromCurrency} = ${rate.toFixed(4)} ${params.toCurrency}\n\n$${intent.amount} USD = ${converted.toFixed(2)} ${params.toCurrency}\n\nWould you like to proceed with this payment?`,
-        intent,
-        requiresConfirmation: true,
-        metadata: { exchangeRate: rate, convertedAmount: converted },
-      };
+      if (isQueryOnly) {
+        // Just showing rates, not asking to proceed with payment
+        return {
+          message: `💱 **Current Exchange Rates**
+
+1 ${params.fromCurrency} = ${rate.toFixed(4)} ${params.toCurrency}
+
+**Example conversion:**
+$${amount} USD = ${converted.toFixed(2)} ${params.toCurrency}
+
+Would you like to send money using this rate? Just tell me the amount and recipient!`,
+          intent,
+          requiresConfirmation: false,
+          metadata: { exchangeRate: rate, convertedAmount: converted },
+        };
+      } else {
+        // User wants to make a payment
+        return {
+          message: `Current exchange rate: 1 ${params.fromCurrency} = ${rate.toFixed(4)} ${params.toCurrency}\n\n$${amount} USD = ${converted.toFixed(2)} ${params.toCurrency}\n\nWould you like to proceed with this payment?`,
+          intent,
+          requiresConfirmation: true,
+          metadata: { exchangeRate: rate, convertedAmount: converted },
+        };
+      }
     } catch {
       return {
         message: "I couldn't fetch the current exchange rate. Please try again.",
