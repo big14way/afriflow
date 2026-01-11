@@ -258,6 +258,39 @@ router.get("/rates", async (_req: Request, res: Response) => {
   }
 });
 
+/**
+ * GET /api/wallet/:address/balance
+ * Get wallet token balances
+ */
+router.get("/wallet/:address/balance", async (req: Request, res: Response) => {
+  try {
+    const { address } = req.params;
+
+    if (!x402Service) {
+      return res.status(503).json({
+        success: false,
+        error: "X402 service not initialized",
+      });
+    }
+
+    const usdcBalance = await x402Service.getTokenBalance(address, "USDC");
+
+    res.json({
+      success: true,
+      data: {
+        USDC: usdcBalance,
+      },
+    });
+  } catch (error: any) {
+    logger.error("Balance endpoint error", { error: error.message });
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to get balance",
+    });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // PAYMENT HISTORY ENDPOINTS
 // ═══════════════════════════════════════════════════════════════════════════════

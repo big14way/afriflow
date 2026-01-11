@@ -179,63 +179,118 @@ Just tell me what you need in plain English!`,
 
       // Contract addresses from env
       const PAYMENT_CONTRACT = '0xC3a201c2Dc904ae32a9a0adea3478EB252d5Cf88';
+      const ESCROW_CONTRACT = '0x97ae7ed8bEEfC7358C1Dd5108dD7f3e378bFB4E3';
       const USDC_ADDRESS = '0xd8E68c3B9D3637CB99054efEdeE20BD8aeea45f1';
 
-      // AfriFlowPayment contract ABI (minimal)
-      const paymentABI = [
-        'function executeInstantPayment(address recipient, address token, uint256 amount, bytes32 fromCorridor, bytes32 toCorridor, string calldata metadata) external returns (bytes32)',
-      ];
+      let tx, receipt, resultMessage;
 
-      const paymentContract = new ethers.Contract(PAYMENT_CONTRACT, paymentABI, signer);
+      if (pendingAction.type === 'create_escrow') {
+        // Handle escrow creation
+        const escrowABI = [
+          'function createEscrow(address recipient, address token, uint256 totalAmount, tuple(string description, uint256 amount, string releaseCondition)[] milestones, string metadata) external returns (bytes32)',
+        ];
 
-      // Encode corridor bytes32
-      const fromCorridor = ethers.encodeBytes32String(pendingAction.params.fromCorridor || 'US');
-      const toCorridor = ethers.encodeBytes32String(pendingAction.params.toCorridor || 'KE');
-      const amount = ethers.parseUnits(pendingAction.params.amount.toString(), 6); // USDC has 6 decimals
+        const escrowContract = new ethers.Contract(ESCROW_CONTRACT, escrowABI, signer);
 
-      console.log('Executing payment...', {
-        recipient: pendingAction.params.recipient,
-        amount: pendingAction.params.amount,
-        fromCorridor: pendingAction.params.fromCorridor,
-        toCorridor: pendingAction.params.toCorridor,
-      });
+        const totalAmount = ethers.parseUnits(pendingAction.params.totalAmount.toString(), 6);
+        const milestones = pendingAction.params.milestones.map((m: any) => ({
+          description: m.description,
+          amount: ethers.parseUnits(m.amount.toString(), 6),
+          releaseCondition: m.releaseCondition || '',
+        }));
 
-      // Execute payment
-      const tx = await paymentContract.executeInstantPayment(
-        pendingAction.params.recipient,
-        USDC_ADDRESS,
-        amount,
-        fromCorridor,
-        toCorridor,
-        pendingAction.params.metadata || '{}'
-      );
+        console.log('Creating escrow...', {
+          recipient: pendingAction.params.recipient,
+          totalAmount: pendingAction.params.totalAmount,
+          milestones: pendingAction.params.milestones,
+        });
 
-      toast({
-        title: 'Transaction Sent',
-        description: 'Waiting for confirmation...',
-      });
+        tx = await escrowContract.createEscrow(
+          pendingAction.params.recipient,
+          USDC_ADDRESS,
+          totalAmount,
+          milestones,
+          pendingAction.params.metadata || '{}'
+        );
 
-      const receipt = await tx.wait();
+        toast({
+          title: 'Transaction Sent',
+          description: 'Creating escrow...',
+        });
 
-      const resultMessage: Message = {
-        id: `result-${Date.now()}`,
-        role: 'assistant',
-        content: `✅ **Payment Successful!**
+        receipt = await tx.wait();
+
+        resultMessage = {
+          id: `result-${Date.now()}`,
+          role: 'assistant',
+          content: `✅ **Escrow Created Successfully!**
+
+🔗 Transaction: ${receipt.hash}
+⚡ Status: Confirmed
+💰 Total Amount: $${pendingAction.params.totalAmount}
+📍 Recipient: ${pendingAction.params.recipient}
+📋 Milestones: ${pendingAction.params.milestones.length}
+
+View on Cronos Explorer: https://explorer.cronos.org/testnet/tx/${receipt.hash}`,
+          timestamp: new Date(),
+          transactionHash: receipt.hash,
+        };
+
+      } else {
+        // Handle instant payment
+        const paymentABI = [
+          'function executeInstantPayment(address recipient, address token, uint256 amount, bytes32 fromCorridor, bytes32 toCorridor, string calldata metadata) external returns (bytes32)',
+        ];
+
+        const paymentContract = new ethers.Contract(PAYMENT_CONTRACT, paymentABI, signer);
+
+        const fromCorridor = ethers.encodeBytes32String(pendingAction.params.fromCorridor || 'US');
+        const toCorridor = ethers.encodeBytes32String(pendingAction.params.toCorridor || 'KE');
+        const amount = ethers.parseUnits(pendingAction.params.amount.toString(), 6);
+
+        console.log('Executing payment...', {
+          recipient: pendingAction.params.recipient,
+          amount: pendingAction.params.amount,
+          fromCorridor: pendingAction.params.fromCorridor,
+          toCorridor: pendingAction.params.toCorridor,
+        });
+
+        tx = await paymentContract.executeInstantPayment(
+          pendingAction.params.recipient,
+          USDC_ADDRESS,
+          amount,
+          fromCorridor,
+          toCorridor,
+          pendingAction.params.metadata || '{}'
+        );
+
+        toast({
+          title: 'Transaction Sent',
+          description: 'Waiting for confirmation...',
+        });
+
+        receipt = await tx.wait();
+
+        resultMessage = {
+          id: `result-${Date.now()}`,
+          role: 'assistant',
+          content: `✅ **Payment Successful!**
 
 🔗 Transaction: ${receipt.hash}
 ⚡ Status: Confirmed
 💰 Amount: $${pendingAction.params.amount} sent to ${pendingAction.params.recipient}
 
 View on Cronos Explorer: https://explorer.cronos.org/testnet/tx/${receipt.hash}`,
-        timestamp: new Date(),
-        transactionHash: receipt.hash,
-      };
+          timestamp: new Date(),
+          transactionHash: receipt.hash,
+        };
+      }
 
       setMessages((prev) => [...prev, resultMessage]);
       setPendingAction(null);
 
       toast({
-        title: 'Payment Successful!',
+        title: pendingAction.type === 'create_escrow' ? 'Escrow Created!' : 'Payment Successful!',
         description: 'Your transaction has been confirmed',
         variant: 'success',
       });
