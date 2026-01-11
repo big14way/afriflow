@@ -62,27 +62,32 @@ export function VoiceInput({ onTranscript, language = 'en-US' }: VoiceInputProps
         let errorMsg = 'Voice input failed';
         switch (event.error) {
           case 'no-speech':
-            errorMsg = 'No speech detected. Please try again.';
+            errorMsg = 'No speech detected. Try again.';
             break;
           case 'audio-capture':
-            errorMsg = 'Microphone not found or not working';
+            errorMsg = 'Microphone not found';
             break;
           case 'not-allowed':
-            errorMsg = 'Microphone permission denied';
+            errorMsg = 'Microphone permission denied. Check browser settings.';
             break;
           case 'network':
-            errorMsg = 'Network error. Check your connection.';
+            errorMsg = 'Internet connection required for voice input';
+            console.warn('Speech recognition requires internet connection. The Web Speech API uses cloud-based recognition.');
             break;
           case 'aborted':
-            errorMsg = 'Recording stopped';
+            errorMsg = 'Recording cancelled';
+            break;
+          case 'service-not-allowed':
+            errorMsg = 'Speech service not available';
             break;
         }
 
         setError(errorMsg);
         setIsListening(false);
 
-        // Show error briefly
-        setTimeout(() => setError(''), 3000);
+        // Show error longer for network issues
+        const timeout = event.error === 'network' ? 5000 : 3000;
+        setTimeout(() => setError(''), timeout);
       };
 
       recognition.onend = () => {
@@ -231,7 +236,8 @@ export function VoiceInput({ onTranscript, language = 'en-US' }: VoiceInputProps
           animate={{ opacity: 1, y: 0 }}
           className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-slate-900 text-white text-xs rounded-lg whitespace-nowrap z-50"
         >
-          Click to speak
+          <div className="font-semibold mb-1">🎤 Voice Input</div>
+          <div className="text-slate-300">Click to speak • Internet required</div>
           <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-slate-900" />
         </motion.div>
       )}
