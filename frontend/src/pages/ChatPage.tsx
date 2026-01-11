@@ -1,19 +1,21 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send,
   Loader2,
-  Check,
-  AlertCircle,
   ExternalLink,
   Sparkles,
-  ArrowRight,
   Wallet,
   Copy,
   CheckCircle2,
 } from 'lucide-react';
 import { useWalletStore } from '../hooks/useWallet';
 import { useToast } from '../hooks/useToast';
+import { ConversationManager } from '../utils/conversationContext';
+import { validateBalance, generateErrorMessage, PAYMENT_CONTRACT, ESCROW_CONTRACT } from '../utils/balanceValidator';
+import { PaymentCard } from '../components/chat/PaymentCard';
+import { QuickActions, SmartSuggestions } from '../components/chat/QuickActions';
+import { BalanceDisplay } from '../components/chat/BalanceDisplay';
 
 interface Message {
   id: string;
@@ -26,23 +28,24 @@ interface Message {
   transactionHash?: string;
 }
 
-const suggestedPrompts = [
-  "Send $100 to my family in Kenya",
-  "Create an escrow payment for a supplier in Lagos",
-  "What are the exchange rates for NGN?",
-  "Send $50 to three different recipients",
-];
-
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [pendingAction, setPendingAction] = useState<any>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [balanceWarning, setBalanceWarning] = useState<string>('');
+  const [allowanceWarning, setAllowanceWarning] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { address, isConnected, connect } = useWalletStore();
   const { toast } = useToast();
+
+  // Initialize conversation manager
+  const conversationManager = useMemo(() => {
+    if (!address) return null;
+    return new ConversationManager(address, conversationId || undefined);
+  }, [address, conversationId]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -101,7 +104,8 @@ Just tell me what you need in plain English!`,
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/chat`, {
+      const baseUrl = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
+      const response = await fetch(`${baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -133,8 +137,21 @@ Just tell me what you need in plain English!`,
 
         setMessages((prev) => [...prev, assistantMessage]);
 
+        // Add message to conversation manager
+        if (conversationManager) {
+          conversationManager.addMessage({
+            role: 'user',
+            content: userMessage.content,
+          });
+          conversationManager.addMessage({
+            role: 'assistant',
+            content: data.data.message,
+          });
+        }
+
+        // Validate balance if action requires confirmation
         if (data.data.requiresConfirmation && data.data.action) {
-          setPendingAction(data.data.action);
+          await handleActionValidation(data.data.action);
         }
       } else {
         throw new Error(data.error || 'Failed to process message');
@@ -158,6 +175,59 @@ Just tell me what you need in plain English!`,
       ]);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleActionValidation = async (action: any) => {
+    setPendingAction(action);
+    setBalanceWarning('');
+    setAllowanceWarning('');
+
+    try {
+      if (!address) return;
+
+      // Determine amount and contract based on action type
+      const amount = action.type === 'create_escrow'
+        ? action.params.totalAmount.toString()
+        : action.params.amount.toString();
+
+      const contractAddress = action.type === 'create_escrow'
+        ? ESCROW_CONTRACT
+        : PAYMENT_CONTRACT;
+
+      // Validate balance and allowance
+      const validation = await validateBalance(address, amount, contractAddress);
+
+      if (!validation.hasEnoughBalance) {
+        setBalanceWarning(
+          `Insufficient balance. You have $${validation.currentBalance} but need $${amount}. Short by $${validation.shortfall}.`
+        );
+      }
+
+      if (!validation.hasEnoughAllowance) {
+        setAllowanceWarning(
+          'Token approval needed. Please approve AfriFlow to spend your USDC before sending.'
+        );
+      }
+
+      // Show any additional warnings
+      if (validation.warnings.length > 0 && validation.hasEnoughBalance) {
+        validation.warnings.forEach(warning => {
+          toast({
+            title: 'Notice',
+            description: warning,
+            variant: 'warning',
+          });
+        });
+      }
+    } catch (error) {
+      console.error('Balance validation error:', error);
+      // Don't block the transaction, just warn
+      toast({
+        title: 'Validation Warning',
+        description: 'Could not verify balance. Proceed with caution.',
+        variant: 'warning',
+      });
     }
   };
 
@@ -296,6 +366,27 @@ View on Cronos Explorer: https://explorer.cronos.org/testnet/tx/${receipt.hash}`
 
       setMessages((prev) => [...prev, resultMessage]);
       setPendingAction(null);
+      setBalanceWarning('');
+      setAllowanceWarning('');
+
+      // Update conversation manager metadata and preferences
+      if (conversationManager) {
+        const actionType = pendingAction.type === 'create_escrow' ? 'escrow' : 'payment';
+        const amount = pendingAction.type === 'create_escrow'
+          ? pendingAction.params.totalAmount
+          : pendingAction.params.amount;
+
+        conversationManager.updateMetadata(actionType, amount);
+
+        if (actionType === 'payment') {
+          conversationManager.updatePreferences({
+            recipient: pendingAction.params.recipient,
+            amount: amount,
+            fromCorridor: pendingAction.params.fromCorridor,
+            toCorridor: pendingAction.params.toCorridor,
+          });
+        }
+      }
 
       toast({
         title: pendingAction.type === 'create_escrow' ? 'Escrow Created!' : 'Payment Successful!',
@@ -305,14 +396,17 @@ View on Cronos Explorer: https://explorer.cronos.org/testnet/tx/${receipt.hash}`
     } catch (error: any) {
       console.error('Payment error:', error);
 
+      // Generate user-friendly error message
+      const errorInfo = generateErrorMessage(error);
+
       const resultMessage: Message = {
         id: `error-${Date.now()}`,
         role: 'assistant',
-        content: `❌ **Payment Failed**
+        content: `❌ **Transaction Failed**
 
-Error: ${error.message || 'Unknown error'}
+${errorInfo.message}
 
-Please check your wallet balance and try again. If the issue persists, contact support.`,
+${errorInfo.actionButton ? `💡 **Next Step:** ${errorInfo.actionButton.label}` : 'Please try again or contact support if the issue persists.'}`,
         timestamp: new Date(),
       };
 
@@ -320,17 +414,12 @@ Please check your wallet balance and try again. If the issue persists, contact s
 
       toast({
         title: 'Transaction Failed',
-        description: error.message || 'Unknown error',
+        description: errorInfo.message,
         variant: 'destructive',
       });
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handlePromptClick = (prompt: string) => {
-    setInput(prompt);
-    inputRef.current?.focus();
   };
 
   const copyToClipboard = (text: string) => {
@@ -344,20 +433,29 @@ Please check your wallet balance and try again. If the issue persists, contact s
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       {/* Header */}
-      <div className="text-center mb-8">
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-afri-500/10 dark:bg-afri-500/20 mb-4"
-        >
-          <Sparkles className="w-4 h-4 text-afri-500" />
-          <span className="text-sm font-medium text-afri-600 dark:text-afri-400">
-            AI-Powered Payments
-          </span>
-        </motion.div>
-        <h1 className="text-2xl sm:text-3xl font-display font-bold text-slate-900 dark:text-white">
-          How can I help you today?
-        </h1>
+      <div className="mb-8">
+        <div className="text-center mb-4">
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-afri-500/10 dark:bg-afri-500/20 mb-4"
+          >
+            <Sparkles className="w-4 h-4 text-afri-500" />
+            <span className="text-sm font-medium text-afri-600 dark:text-afri-400">
+              AI-Powered Payments
+            </span>
+          </motion.div>
+          <h1 className="text-2xl sm:text-3xl font-display font-bold text-slate-900 dark:text-white">
+            How can I help you today?
+          </h1>
+        </div>
+
+        {/* Balance Display */}
+        {isConnected && address && (
+          <div className="flex justify-center">
+            <BalanceDisplay userAddress={address} />
+          </div>
+        )}
       </div>
 
       {/* Chat container */}
@@ -448,49 +546,61 @@ Please check your wallet balance and try again. If the issue persists, contact s
             </motion.div>
           )}
 
-          {/* Confirmation buttons */}
+          {/* Payment Confirmation Card */}
           {pendingAction && !isLoading && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex justify-center gap-4 py-4"
-            >
-              <button
-                onClick={handleConfirm}
-                className="btn-primary"
-              >
-                <Check className="w-4 h-4" />
-                Confirm Payment
-              </button>
-              <button
-                onClick={() => setPendingAction(null)}
-                className="btn-ghost text-red-600 dark:text-red-400"
-              >
-                Cancel
-              </button>
-            </motion.div>
+            <div className="flex justify-center">
+              <PaymentCard
+                type={pendingAction.type}
+                recipient={pendingAction.params.recipient}
+                amount={
+                  pendingAction.type === 'create_escrow'
+                    ? pendingAction.params.totalAmount
+                    : pendingAction.params.amount
+                }
+                currency="USDC"
+                milestones={pendingAction.params.milestones}
+                fromCorridor={pendingAction.params.fromCorridor}
+                toCorridor={pendingAction.params.toCorridor}
+                balanceWarning={balanceWarning}
+                allowanceWarning={allowanceWarning}
+                onConfirm={handleConfirm}
+                onCancel={() => {
+                  setPendingAction(null);
+                  setBalanceWarning('');
+                  setAllowanceWarning('');
+                }}
+                isLoading={isLoading}
+              />
+            </div>
           )}
 
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Suggested prompts (shown when no messages) */}
-        {messages.length <= 1 && (
-          <div className="px-6 pb-4">
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
-              Try saying:
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {suggestedPrompts.map((prompt) => (
-                <button
-                  key={prompt}
-                  onClick={() => handlePromptClick(prompt)}
-                  className="px-3 py-2 text-sm bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 transition-colors"
-                >
-                  {prompt}
-                </button>
-              ))}
-            </div>
+        {/* Smart Suggestions and Quick Actions */}
+        {!pendingAction && isConnected && (
+          <div className="px-6 pb-4 space-y-4">
+            {/* Smart suggestions based on user history */}
+            {conversationManager && messages.length > 1 && (
+              <SmartSuggestions
+                suggestions={conversationManager.getSmartSuggestions()}
+                onSuggestionClick={(suggestion) => {
+                  setInput(suggestion);
+                  inputRef.current?.focus();
+                }}
+              />
+            )}
+
+            {/* Quick actions for new users */}
+            {messages.length <= 1 && (
+              <QuickActions
+                onActionClick={(prompt) => {
+                  setInput(prompt);
+                  inputRef.current?.focus();
+                }}
+                showDefault={true}
+              />
+            )}
           </div>
         )}
 

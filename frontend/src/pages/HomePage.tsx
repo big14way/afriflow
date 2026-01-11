@@ -7,7 +7,6 @@ import {
   Globe,
   TrendingDown,
   Clock,
-  Users,
   MessageSquare,
   Sparkles,
 } from 'lucide-react';

@@ -9,13 +9,11 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
-  ExternalLink,
   Wallet,
   Plus,
   RefreshCw,
   FileText,
   DollarSign,
-  Users,
 } from 'lucide-react';
 import { useWalletStore } from '../hooks/useWallet';
 import { useToast } from '../hooks/useToast';
@@ -78,7 +76,7 @@ export default function EscrowsPage() {
   const fetchEscrows = async () => {
     setIsLoading(true);
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const baseUrl = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
       const response = await fetch(`${baseUrl}/api/escrows/${address}`);
       const data = await response.json();
 

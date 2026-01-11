@@ -99,7 +99,7 @@ export function TransactionStatus({ hash, status, message, onClose }: Transactio
                       transition={{ duration: 0.5 }}
                     />
                   </div>
-                </motion.div>
+                </div>
               )}
             </div>
 

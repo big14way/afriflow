@@ -3,7 +3,6 @@ import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import {
   ArrowUpRight,
-  ArrowDownRight,
   TrendingUp,
   Activity,
   DollarSign,
@@ -11,7 +10,6 @@ import {
   Clock,
   CheckCircle2,
   XCircle,
-  ExternalLink,
   RefreshCw,
   Wallet,
   Plus,
@@ -81,7 +79,6 @@ export default function DashboardPage() {
     averageAmount: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
-  const [balance, setBalance] = useState<string>('0');
 
   useEffect(() => {
     if (isConnected && address) {
@@ -94,7 +91,7 @@ export default function DashboardPage() {
   const fetchDashboardData = async () => {
     setIsLoading(true);
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const baseUrl = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
 
       // Fetch payments
       const paymentsRes = await fetch(`${baseUrl}/api/payments/${address}`);
@@ -123,9 +120,6 @@ export default function DashboardPage() {
       const balanceRes = await fetch(`${baseUrl}/api/wallet/${address}/balance`);
       const balanceData = await balanceRes.json();
       console.log('Dashboard balance response:', balanceData);
-      if (balanceData.success && balanceData.data) {
-        setBalance(balanceData.data.USDC || '0');
-      }
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
       // Set mock data for demo
