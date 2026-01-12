@@ -285,39 +285,47 @@ export class ContractService {
   async getUserPayments(address: string): Promise<any[]> {
     const paymentIds = await this.paymentContract.getUserPayments(address);
 
-    const payments = await Promise.all(
-      paymentIds.map(async (id: string) => {
-        const payment = await this.paymentContract.getPayment(id);
+    // Process in chunks of 3 to avoid DRPC batch limit on free tier
+    const CHUNK_SIZE = 3;
+    const payments = [];
 
-        // Decode corridor bytes32 to string
-        let fromCorridor = 'Unknown';
-        let toCorridor = 'Unknown';
-        try {
-          fromCorridor = ethers.decodeBytes32String(payment.fromCorridor);
-        } catch (e) {
-          // Keep default if decode fails
-        }
-        try {
-          toCorridor = ethers.decodeBytes32String(payment.toCorridor);
-        } catch (e) {
-          // Keep default if decode fails
-        }
+    for (let i = 0; i < paymentIds.length; i += CHUNK_SIZE) {
+      const chunk = paymentIds.slice(i, i + CHUNK_SIZE);
+      const chunkPayments = await Promise.all(
+        chunk.map(async (id: string) => {
+          const payment = await this.paymentContract.getPayment(id);
 
-        return {
-          paymentId: payment.paymentId,
-          sender: payment.sender,
-          recipient: payment.recipient,
-          amount: ethers.formatUnits(payment.amount, 6),
-          fee: ethers.formatUnits(payment.fee, 6),
-          fromCorridor,
-          toCorridor,
-          status: ["PENDING", "COMPLETED", "FAILED", "REFUNDED", "CANCELLED"][
-            payment.status
-          ],
-          createdAt: new Date(Number(payment.createdAt) * 1000),
-        };
-      })
-    );
+          // Decode corridor bytes32 to string
+          let fromCorridor = 'Unknown';
+          let toCorridor = 'Unknown';
+          try {
+            fromCorridor = ethers.decodeBytes32String(payment.fromCorridor);
+          } catch (e) {
+            // Keep default if decode fails
+          }
+          try {
+            toCorridor = ethers.decodeBytes32String(payment.toCorridor);
+          } catch (e) {
+            // Keep default if decode fails
+          }
+
+          return {
+            paymentId: payment.paymentId,
+            sender: payment.sender,
+            recipient: payment.recipient,
+            amount: ethers.formatUnits(payment.amount, 6),
+            fee: ethers.formatUnits(payment.fee, 6),
+            fromCorridor,
+            toCorridor,
+            status: ["PENDING", "COMPLETED", "FAILED", "REFUNDED", "CANCELLED"][
+              payment.status
+            ],
+            createdAt: new Date(Number(payment.createdAt) * 1000),
+          };
+        })
+      );
+      payments.push(...chunkPayments);
+    }
 
     return payments;
   }
