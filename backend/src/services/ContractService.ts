@@ -79,7 +79,10 @@ export class ContractService {
     usdcAddress: string;
     privateKey?: string;
   }) {
-    this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
+    // Disable batching to comply with DRPC free tier limits (max 3 requests per batch)
+    this.provider = new ethers.JsonRpcProvider(config.rpcUrl, undefined, {
+      batchMaxCount: 1, // Disable automatic batching
+    });
     this.usdcAddress = config.usdcAddress;
 
     if (config.privateKey) {
