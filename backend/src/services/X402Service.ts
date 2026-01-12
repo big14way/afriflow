@@ -15,47 +15,78 @@ interface X402PaymentRequest {
   recipient: string;
   token: string;
   amount: bigint;
-  nonce: bigint;
+  nonce: string;
   deadline: bigint;
   signature?: string;
 }
 
+interface X402AuthorizationPayload {
+  from: string;
+  to: string;
+  value: string;
+  validAfter: string;
+  validBefore: string;
+  nonce: string;
+  v: number;
+  r: string;
+  s: string;
+}
+
 /**
  * X402Service
- * Handles integration with Cronos x402 Facilitator for programmable payments
+ * Handles integration with Cronos x402 Facilitator HTTP API for programmable payments
+ *
+ * The Cronos x402 Facilitator is an HTTP API service (not a smart contract) that enables
+ * sellers to verify and settle blockchain payments using EIP-3009 transferWithAuthorization.
  */
 export class X402Service {
   private provider: ethers.JsonRpcProvider;
-  private facilitatorAddress: string;
+  private facilitatorUrl: string;
   private signer?: ethers.Wallet;
   private paymentContractAddress: string;
 
-  // Stablecoin addresses on Cronos
+  // Stablecoin addresses on Cronos Testnet
   private tokenAddresses: Record<string, string> = {
-    USDC: process.env.USDC_ADDRESS || "0xc21223249CA28397B4B6541dfFaEcC539BfF0c59",
-    USDT: process.env.USDT_ADDRESS || "0x66e428c3f67a68878562e79A0234c1F83c208770",
+    USDC: process.env.USDC_ADDRESS || "0xd8E68c3B9D3637CB99054efEdeE20BD8aeea45f1", // Mock USDC on testnet
+  };
+
+  // EIP-712 Domain for devUSDC.e on Cronos Testnet
+  private readonly EIP712_DOMAIN = {
+    name: "Bridged USDC (Stargate)",
+    version: "1",
+    chainId: 338, // Cronos Testnet
+    verifyingContract: process.env.USDC_ADDRESS || "0xd8E68c3B9D3637CB99054efEdeE20BD8aeea45f1",
   };
 
   constructor(config: {
     rpcUrl: string;
-    facilitatorAddress: string;
+    facilitatorAddress: string; // This is now the HTTP URL
     paymentContractAddress: string;
     privateKey?: string;
   }) {
     this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
-    this.facilitatorAddress = config.facilitatorAddress;
+    // Use Cronos x402 Facilitator HTTP API
+    this.facilitatorUrl = config.facilitatorAddress.startsWith('http')
+      ? config.facilitatorAddress
+      : "https://facilitator.cronoslabs.org/v2/x402/";
     this.paymentContractAddress = config.paymentContractAddress;
 
     if (config.privateKey) {
       this.signer = new ethers.Wallet(config.privateKey, this.provider);
     }
+
+    logger.info("X402Service initialized", {
+      facilitatorUrl: this.facilitatorUrl,
+      usdcAddress: this.tokenAddresses.USDC
+    });
   }
 
   /**
    * Execute an instant payment via x402 rails
+   * This now uses the Cronos x402 Facilitator HTTP API with EIP-3009
    */
   async executePayment(params: PaymentParams): Promise<string> {
-    logger.info("Executing x402 payment", { params });
+    logger.info("Executing x402 payment via facilitator API", { params });
 
     try {
       // Convert amount to token decimals (USDC has 6 decimals)
@@ -70,59 +101,31 @@ export class X402Service {
         );
       }
 
-      // Check allowance
-      const allowance = await this.checkAllowance(
-        params.sender,
-        this.paymentContractAddress,
-        "USDC"
-      );
-      const allowanceNumber = parseFloat(allowance);
-      if (allowanceNumber < params.amount) {
-        throw new Error(
-          `Insufficient USDC allowance. Please approve the AfriFlow contract (${this.paymentContractAddress}) to spend your USDC. Current allowance: ${allowance} USDC, required: ${params.amount} USDC.`
-        );
-      }
+      // Generate nonce for EIP-3009 (32 bytes in hex)
+      const nonce = "0x" + ethers.hexlify(ethers.randomBytes(32)).slice(2);
+      const validAfter = 0; // Valid immediately
+      const validBefore = Math.floor(Date.now() / 1000) + 3600; // Valid for 1 hour
 
-      // Get payment contract
-      const paymentContract = new ethers.Contract(
-        this.paymentContractAddress,
-        [
-          "function executeInstantPayment(address recipient, address token, uint256 amount, bytes32 fromCorridor, bytes32 toCorridor, string calldata metadata) external returns (bytes32)",
-          "function executeX402Payment(address sender, address recipient, address token, uint256 amount, bytes32 fromCorridor, bytes32 toCorridor, string calldata metadata, bytes calldata x402Data) external returns (bytes32)",
-        ],
-        this.signer
-      );
-
-      // Encode corridor bytes32
-      const fromCorridor = ethers.encodeBytes32String(params.fromCorridor);
-      const toCorridor = ethers.encodeBytes32String(params.toCorridor);
-
-      // Build x402 payment data
-      const x402Data = await this.buildX402PaymentData({
-        sender: params.sender,
-        recipient: params.recipient,
-        token: this.tokenAddresses.USDC,
-        amount,
-        nonce: 0n, // Will be fetched from facilitator
-        deadline: BigInt(Math.floor(Date.now() / 1000) + 3600), // 1 hour deadline
+      // Create EIP-3009 transferWithAuthorization signature
+      const authorization = await this.signTransferAuthorization({
+        from: params.sender,
+        to: params.recipient,
+        value: amount.toString(),
+        validAfter: validAfter.toString(),
+        validBefore: validBefore.toString(),
+        nonce,
       });
 
-      // Execute via x402 (agent-triggered)
-      const tx = await paymentContract.executeX402Payment(
-        params.sender,
-        params.recipient,
-        this.tokenAddresses.USDC,
-        amount,
-        fromCorridor,
-        toCorridor,
-        params.metadata || "",
-        x402Data
-      );
+      // Send payment request to x402 Facilitator API
+      const txHash = await this.sendPaymentToFacilitator({
+        ...authorization,
+        fromCorridor: params.fromCorridor,
+        toCorridor: params.toCorridor,
+        metadata: params.metadata,
+      });
 
-      const receipt = await tx.wait();
-      logger.info("Payment executed successfully", { txHash: receipt.hash });
-
-      return receipt.hash;
+      logger.info("Payment executed successfully via x402 facilitator", { txHash });
+      return txHash;
     } catch (error: any) {
       logger.error("Payment execution failed", { error: error.message });
       throw error;
@@ -130,39 +133,156 @@ export class X402Service {
   }
 
   /**
-   * Build x402 payment data for facilitator
+   * Sign an EIP-3009 transferWithAuthorization message
+   * This creates a signature that allows the facilitator to transfer tokens on behalf of the sender
    */
-  private async buildX402PaymentData(request: X402PaymentRequest): Promise<string> {
-    // Get nonce from facilitator
-    const facilitatorContract = new ethers.Contract(
-      this.facilitatorAddress,
-      ["function getNonce(address account) view returns (uint256)"],
-      this.provider
-    );
-
-    let nonce = request.nonce;
-    try {
-      nonce = await facilitatorContract.getNonce(request.sender);
-    } catch {
-      logger.warn("Could not fetch nonce from facilitator, using 0");
+  private async signTransferAuthorization(params: {
+    from: string;
+    to: string;
+    value: string;
+    validAfter: string;
+    validBefore: string;
+    nonce: string;
+  }): Promise<X402AuthorizationPayload> {
+    if (!this.signer) {
+      throw new Error("Signer not configured for x402 service");
     }
 
-    // Encode the x402 payment request
-    const abiCoder = new ethers.AbiCoder();
-    const encodedData = abiCoder.encode(
-      ["address", "address", "address", "uint256", "uint256", "uint256"],
-      [
-        request.sender,
-        request.recipient,
-        request.token,
-        request.amount,
-        nonce,
-        request.deadline,
-      ]
+    // EIP-712 typed data for transferWithAuthorization
+    const types = {
+      TransferWithAuthorization: [
+        { name: "from", type: "address" },
+        { name: "to", type: "address" },
+        { name: "value", type: "uint256" },
+        { name: "validAfter", type: "uint256" },
+        { name: "validBefore", type: "uint256" },
+        { name: "nonce", type: "bytes32" },
+      ],
+    };
+
+    const value = {
+      from: params.from,
+      to: params.to,
+      value: params.value,
+      validAfter: params.validAfter,
+      validBefore: params.validBefore,
+      nonce: params.nonce,
+    };
+
+    // Sign the typed data
+    const signature = await this.signer.signTypedData(
+      this.EIP712_DOMAIN,
+      types,
+      value
     );
 
-    return encodedData;
+    // Split signature into r, s, v
+    const sig = ethers.Signature.from(signature);
+
+    return {
+      from: params.from,
+      to: params.to,
+      value: params.value,
+      validAfter: params.validAfter,
+      validBefore: params.validBefore,
+      nonce: params.nonce,
+      v: sig.v,
+      r: sig.r,
+      s: sig.s,
+    };
   }
+
+  /**
+   * Send payment request to Cronos x402 Facilitator HTTP API
+   */
+  private async sendPaymentToFacilitator(params: X402AuthorizationPayload & {
+    fromCorridor?: string;
+    toCorridor?: string;
+    metadata?: string;
+  }): Promise<string> {
+    // Encode authorization payload as base64 for X-PAYMENT header
+    const authPayload = Buffer.from(JSON.stringify({
+      from: params.from,
+      to: params.to,
+      value: params.value,
+      validAfter: params.validAfter,
+      validBefore: params.validBefore,
+      nonce: params.nonce,
+      v: params.v,
+      r: params.r,
+      s: params.s,
+    })).toString('base64');
+
+    // Make HTTP request to facilitator
+    try {
+      const response = await fetch(`${this.facilitatorUrl}/payment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-PAYMENT': authPayload,
+        },
+        body: JSON.stringify({
+          token: this.tokenAddresses.USDC,
+          fromCorridor: params.fromCorridor,
+          toCorridor: params.toCorridor,
+          metadata: params.metadata || {},
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Facilitator API error: ${response.status} - ${error}`);
+      }
+
+      const result: any = await response.json();
+      return result.transactionHash || result.txHash || result.hash || result.tx;
+    } catch (error: any) {
+      logger.error("Failed to send payment to facilitator", { error: error.message });
+
+      // Fallback: Execute payment directly through smart contract (without facilitator)
+      logger.warn("Falling back to direct smart contract execution");
+      return this.executePaymentDirect(params);
+    }
+  }
+
+  /**
+   * Fallback: Execute payment directly through smart contract without facilitator
+   * This is used when the facilitator API is unavailable
+   */
+  private async executePaymentDirect(params: X402AuthorizationPayload & {
+    fromCorridor?: string;
+    toCorridor?: string;
+    metadata?: string;
+  }): Promise<string> {
+    if (!this.signer) {
+      throw new Error("Signer not configured");
+    }
+
+    const paymentContract = new ethers.Contract(
+      this.paymentContractAddress,
+      [
+        "function executeInstantPayment(address recipient, address token, uint256 amount, bytes32 fromCorridor, bytes32 toCorridor, string calldata metadata) external returns (bytes32)",
+      ],
+      this.signer
+    );
+
+    const fromCorridor = ethers.encodeBytes32String(params.fromCorridor || "US");
+    const toCorridor = ethers.encodeBytes32String(params.toCorridor || "NG");
+
+    const tx = await paymentContract.executeInstantPayment(
+      params.to,
+      this.tokenAddresses.USDC,
+      params.value,
+      fromCorridor,
+      toCorridor,
+      params.metadata || ""
+    );
+
+    const receipt = await tx.wait();
+    logger.info("Payment executed directly (fallback)", { txHash: receipt.hash });
+    return receipt.hash;
+  }
+
 
   /**
    * Execute batch payments via x402
