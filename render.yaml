@@ -1,0 +1,31 @@
+services:
+  # Backend API Service
+  - type: web
+    name: afriflow-api
+    runtime: node
+    env: node
+    region: ohio
+    plan: free
+    buildCommand: cd backend && npm install && npm run build
+    startCommand: cd backend && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CRONOS_RPC_URL
+        value: https://evm-t3.cronos.org
+      - key: CRONOS_CHAIN_ID
+        value: 338
+      - key: PRIVATE_KEY
+        sync: false
+      - key: PAYMENT_CONTRACT
+        value: 0xC3a201c2Dc904ae32a9a0adea3478EB252d5Cf88
+      - key: ESCROW_VAULT
+        value: 0xde5eCbdf2e9601C4B4a08899EAa836081011F7ac
+      - key: X402_FACILITATOR
+        value: https://facilitator.cronoslabs.org/v2/x402
+      - key: USDC_ADDRESS
+        value: 0xd8E68c3B9D3637CB99054efEdeE20BD8aeea45f1
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: https://afriflow-eight.vercel.app,https://afriflow-big14ways-projects.vercel.app

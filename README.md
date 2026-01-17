@@ -36,7 +36,7 @@
 
 **AfriFlow is an AI-powered payment agent that speaks your language and handles the complexity.**
 
-🔗 **[Live Demo](https://afriflow.vercel.app)** | 📺 **[Video Demo](https://youtu.be/demo)** | 📄 **[Documentation](./docs)**
+🔗 **[Live Demo](https://afriflow-big14ways-projects.vercel.app)** | 📺 **[Video Demo](https://youtu.be/demo)** | 📄 **[Documentation](./docs)**
 
 ### How It Works
 
