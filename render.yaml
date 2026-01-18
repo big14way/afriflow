@@ -28,5 +28,5 @@ services:
         value: 0xd8E68c3B9D3637CB99054efEdeE20BD8aeea45f1
       - key: OPENAI_API_KEY
         sync: false
-      - key: CORS_ORIGINS
+      - key: ALLOWED_ORIGINS
         value: https://afriflow-eight.vercel.app,https://afriflow-big14ways-projects.vercel.app
