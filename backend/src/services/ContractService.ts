@@ -290,7 +290,7 @@ export class ContractService {
 
     // Process in chunks of 3 to avoid DRPC batch limit on free tier
     const CHUNK_SIZE = 3;
-    const payments = [];
+    const payments: any[] = [];
 
     for (let i = 0; i < paymentIds.length; i += CHUNK_SIZE) {
       const chunk = paymentIds.slice(i, i + CHUNK_SIZE);
